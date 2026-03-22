@@ -1,0 +1,57 @@
+#!/bin/sh
+#
+# LuCI Certificate-Based Auto-Login
+#
+# This CGI script creates a fully privileged LuCI session when nginx has
+# verified the client certificate (ssl_verify_client on). It reads all
+# ACL group definitions from /usr/share/rpcd/acl.d/ and grants them to
+# the session, replicating a normal root login.
+#
+# nginx must pass the verification result via uwsgi_param:
+#   uwsgi_param HTTP_X_SSL_VERIFY $ssl_client_verify;
+#
+
+if [ "$HTTP_X_SSL_VERIFY" != "SUCCESS" ]; then
+    echo "Status: 403 Forbidden"
+    echo "Content-Type: text/plain"
+    echo ""
+    echo "Client certificate verification failed."
+    exit 0
+fi
+
+SESSION=$(ubus call session create '{"timeout":3600}' | jsonfilter -e "@.ubus_rpc_session")
+
+if [ -z "$SESSION" ]; then
+    echo "Status: 500 Internal Server Error"
+    echo "Content-Type: text/plain"
+    echo ""
+    echo "Failed to create session."
+    exit 0
+fi
+
+# Grant all ACL groups from rpcd ACL definitions (same as session login)
+for f in /usr/share/rpcd/acl.d/*.json; do
+    for group in $(jsonfilter -i "$f" -e '@' | \
+        grep -oE '"[a-zA-Z][a-zA-Z0-9_-]*"\s*:\s*\{' | \
+        grep -oE '"[^"]*"' | tr -d '"' | sort -u); do
+        ubus call session grant \
+            "{\"ubus_rpc_session\":\"$SESSION\",\"scope\":\"access-group\",\"objects\":[[\"$group\",\"read\"]]}" 2>/dev/null
+        ubus call session grant \
+            "{\"ubus_rpc_session\":\"$SESSION\",\"scope\":\"access-group\",\"objects\":[[\"$group\",\"write\"]]}" 2>/dev/null
+    done
+done
+
+# Grant generic scopes for ubus, uci, file and cgi-io access
+ubus call session grant "{\"ubus_rpc_session\":\"$SESSION\",\"scope\":\"ubus\",\"objects\":[[\"*\",\"*\"]]}"
+ubus call session grant "{\"ubus_rpc_session\":\"$SESSION\",\"scope\":\"uci\",\"objects\":[[\"*\",\"*\"]]}"
+ubus call session grant "{\"ubus_rpc_session\":\"$SESSION\",\"scope\":\"file\",\"objects\":[[\"*\",\"*\"]]}"
+ubus call session grant "{\"ubus_rpc_session\":\"$SESSION\",\"scope\":\"cgi-io\",\"objects\":[[\"*\",\"*\"]]}"
+
+# Set session data with CSRF token (required by LuCI's session_retrieve)
+TOKEN=$(head -c 16 /dev/urandom | xxd -p 2>/dev/null || cat /dev/urandom | tr -dc 'a-f0-9' | head -c 32)
+ubus call session set "{\"ubus_rpc_session\":\"$SESSION\",\"values\":{\"username\":\"root\",\"login\":1,\"token\":\"$TOKEN\"}}"
+
+echo "Status: 302 Found"
+echo "Set-Cookie: sysauth_https=$SESSION; path=/; HttpOnly; SameSite=Strict; Secure"
+echo "Location: /cgi-bin/luci/admin/status/overview"
+echo ""

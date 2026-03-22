@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# UCI defaults script for luci-app-cert-auth
+#
+# This script configures nginx for client certificate verification
+# if a CA certificate is present at /etc/nginx/conf.d/ca.crt
+#
+
+CA_FILE="/etc/nginx/conf.d/ca.crt"
+
+if [ -f "$CA_FILE" ]; then
+	uci set nginx._lan.ssl_client_certificate="$CA_FILE"
+	uci set nginx._lan.ssl_verify_client='on'
+	uci commit nginx
+fi
+
+# Ensure CGI script is executable
+chmod +x /www/cgi-bin/luci-cert-auth 2>/dev/null
+
+exit 0

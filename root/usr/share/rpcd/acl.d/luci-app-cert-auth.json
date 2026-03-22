@@ -1,0 +1,15 @@
+{
+	"luci-app-cert-auth": {
+		"description": "Grant access to certificate-based authentication",
+		"read": {
+			"ubus": {
+				"session": [ "access", "login" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"session": [ "create", "grant", "set" ]
+			}
+		}
+	}
+}

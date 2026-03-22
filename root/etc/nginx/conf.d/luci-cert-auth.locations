@@ -1,0 +1,7 @@
+location /cgi-bin/luci-cert-auth {
+	include uwsgi_params;
+	uwsgi_param SERVER_ADDR $server_addr;
+	uwsgi_param HTTP_X_SSL_VERIFY $ssl_client_verify;
+	uwsgi_modifier1 9;
+	uwsgi_pass unix:////var/run/luci-webui.socket;
+}
